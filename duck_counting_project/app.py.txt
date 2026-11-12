@@ -1,0 +1,60 @@
+import cv2
+import time
+import numpy as np
+import streamlit as st
+from ultralytics import YOLO
+from camera_stream import CameraStream
+
+st.set_page_config(page_title="Duck Counter", page_icon="🦆", layout="wide")
+st.title("🦆 ระบบนับจำนวนเป็ด Real-Time (Dual Camera Template)")
+
+st.sidebar.header("⚙️ ตั้งค่าระบบ")
+cam1_index = st.sidebar.text_input("กล้อง 1:", value="0")
+cam2_index = st.sidebar.text_input("กล้อง 2:", value="1")
+conf_val = st.sidebar.slider("Confidence:", 0.1, 1.0, 0.4)
+run_system = st.sidebar.checkbox("เริ่มต้นทำงาน", value=False)
+
+col_m1, col_m2, col_m3 = st.columns(3)
+m1, m2, m3 = col_m1.empty(), col_m2.empty(), col_m3.empty()
+
+c1, c2 = st.columns(2)
+p1, p2 = c1.empty(), c2.empty()
+
+@st.cache_resource
+def load_model():
+    return YOLO('yolov8n.pt')
+
+if run_system:
+    model = load_model()
+    c1_src = int(cam1_index) if cam1_index.isdigit() else cam1_index
+    c2_src = int(cam2_index) if cam2_index.isdigit() else cam2_index
+
+    cam1 = CameraStream(src=c1_src).start()
+    cam2 = CameraStream(src=c2_src).start()
+
+    while run_system:
+        f1, f2 = cam1.read(), cam2.read()
+        cnt1, cnt2 = 0, 0
+
+        if f1 is not None:
+            res1 = model.track(f1, persist=True, conf=conf_val, classes=[14], verbose=False)
+            f1_ann = res1[0].plot()
+            if res1[0].boxes is not None: cnt1 = len(res1[0].boxes)
+            p1.image(cv2.cvtColor(f1_ann, cv2.COLOR_BGR2RGB), channels="RGB", use_container_width=True)
+
+        if f2 is not None:
+            res2 = model.track(f2, persist=True, conf=conf_val, classes=[14], verbose=False)
+            f2_ann = res2[0].plot() if hasattr(res2, 'plot') else res2[0].plot()
+            if res2[0].boxes is not None: cnt2 = len(res2[0].boxes)
+            p2.image(cv2.cvtColor(f2_ann, cv2.COLOR_BGR2RGB), channels="RGB", use_container_width=True)
+
+        total = cnt1 + cnt2
+        m1.metric("กล้องที่ 1", f"{cnt1} ตัว")
+        m2.metric("กล้องที่ 2", f"{cnt2} ตัว")
+        m3.metric("รวมทั้งสิ้น", f"{total} ตัว")
+        time.sleep(0.03)
+else:
+    m1.metric("กล้องที่ 1", "0 ตัว")
+    m2.metric("กล้องที่ 2", "0 ตัว")
+    m3.metric("รวมทั้งสิ้น", "0 ตัว")
+    st.info("ติ๊กถูกที่ช่อง 'เริ่มต้นทำงาน' เพื่อเปิดระบบ")
